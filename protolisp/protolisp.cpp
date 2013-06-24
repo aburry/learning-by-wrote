@@ -47,7 +47,8 @@ namespace ProtoLisp {
 bool trace = false;
 
 int main(int argc, char* argv[]) {
-  if (argc > 1 && std::string("--trace-eval") == argv[1]) { trace = true; }
+  for (int i = 0; i < argc; ++i) {
+    if (std::string("--trace-eval") == argv[i]) { trace = true; } }
 
   return ProtoLisp::Repl::repl(std::cin, std::cout); }
 
@@ -205,8 +206,7 @@ namespace ProtoLisp {
 
     class Primitive : public Object {
     public:
-      typedef std::function<ObjectPtr (const ListPtr&, const EnvironmentPtr&)>
-          primitive_type;
+      typedef std::function<ObjectPtr (const ListPtr&)> primitive_type;
 
       Primitive(const SymbolPtr& n, const primitive_type& f) : name(n), exec(f) {}
   
@@ -303,33 +303,33 @@ namespace ProtoLisp {
 
       Expr::ObjectPtr Boolean(bool b) { return b ? Expr::TRUE : Expr::FALSE; }
 
-      template <typename T> Expr::ObjectPtr isp(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
+      template <typename T> Expr::ObjectPtr isp(const Expr::ListPtr& list) {
         assert(len(list) == 1, "wrong number of arguments");
-        return Boolean(Expr::is<T>(eval(list->head, env))); }
+        return Boolean(Expr::is<T>(list->head)); }
 
-      Expr::ObjectPtr cons(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
+      Expr::ObjectPtr cons(const Expr::ListPtr& list) {
         assert(len(list) == 2, "wrong number of arguments");
-        const auto& arg0 = eval(list->head, env);
-        const auto& arg1 = Expr::as<Expr::ListPtr>(eval(list->tail->head, env));
+        const auto& arg0 = list->head;
+        const auto& arg1 = Expr::as<Expr::ListPtr>(list->tail->head);
         assert(arg1.get(), "expected list for arg1");
         return Expr::make_list(arg0, arg1); }
 
-      Expr::ObjectPtr head(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
+      Expr::ObjectPtr head(const Expr::ListPtr& list) {
         assert(len(list) == 1, "wrong number of arguments");
-        const auto& arg0 = Expr::as<Expr::ListPtr>(eval(list->head, env));
+        const auto& arg0 = Expr::as<Expr::ListPtr>(list->head);
         assert(arg0.get(), "expected list for arg0");
         return arg0->head; }
 
-      Expr::ObjectPtr tail(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
+      Expr::ObjectPtr tail(const Expr::ListPtr& list) {
         assert(len(list) == 1, "wrong number of arguments");
-        const auto& arg0 = Expr::as<Expr::ListPtr>(eval(list->head, env));
+        const auto& arg0 = Expr::as<Expr::ListPtr>(list->head);
         assert(arg0.get(), "expected list for arg0");
         return arg0->tail; }
 
-      Expr::ObjectPtr eqp(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
+      Expr::ObjectPtr eqp(const Expr::ListPtr& list) {
         assert(len(list) == 2, "wrong number of arguments");
-        const auto& arg0 = eval(list->head, env);
-        const auto& arg1 = eval(list->tail->head, env);
+        const auto& arg0 = list->head;
+        const auto& arg1 = list->tail->head;
         return Boolean(arg0 == arg1); }
 
       // #f is false, everything else is true.
@@ -350,15 +350,7 @@ namespace ProtoLisp {
         assert(arg0.get(), "expected symbol for arg0");
         const auto& arg1 = eval(list->tail->head, env);
         env->insert(arg0, arg1);
-        return Expr::TRUE; } // Should return Void.
-
-      Expr::ObjectPtr apply(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
-        assert(len(list) == 2, "wrong number of arguments");
-        const auto& arg0 = eval(list->head, env);
-        assert(Expr::is<Expr::ClosurePtr>(arg0) || Expr::as<Expr::PrimitivePtr>(arg0), "expected procedure for arg0");
-        const auto& arg1 = Expr::as<Expr::ListPtr>(eval(list->tail->head, env));
-        assert(arg1.get(), "expected list for arg1");
-        return eval(make_list(arg0, arg1), env); }
+        return arg1; } // Should return Void?
 
       Expr::ObjectPtr lambda(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
         assert(len(list) == 2, "wrong number of arguments");
@@ -375,7 +367,40 @@ namespace ProtoLisp {
          return exp == Expr::List::Empty ? true :
              exp == Expr::FALSE ? true :
              exp == Expr::TRUE ? true : false; }
+
+      Expr::ObjectPtr apply(const Expr::ListPtr& list) {
+        assert(len(list) == 2, "wrong number of arguments");
+        const auto& arg0 = list->head;
+        const auto& arg1 = Expr::as<Expr::ListPtr>(list->tail->head);
+        assert(arg1.get(), "expected list for arg1");
+        const auto& builtin = Expr::as<Expr::PrimitivePtr>(arg0);
+        if (builtin) { return builtin->exec(arg1); }
+        const auto& closure = Expr::as<Expr::ClosurePtr>(arg0);
+        if (closure) {
+          return eval(closure->body, std::make_shared<Expr::Environment>(
+              closure->vars,
+              arg1,
+              closure->env)); }
+        assert(false, "expected procedure for arg0");
+        return Expr::FALSE; }
+
     }
+
+    Expr::ObjectPtr eval(const Expr::ObjectPtr& exp, const Expr::EnvironmentPtr& env) {
+      if (trace) { std::cerr << static_cast<std::string>(*exp) << std::endl; }
+      if (isConstant(exp)) { return exp; }
+      const auto& sym = Expr::as<Expr::SymbolPtr>(exp);
+      if (sym) { return lookup(sym, env); }
+      const auto& list = Expr::as<Expr::ListPtr>(exp);
+      if (list) {
+        if (list->head == Expr::DEFINE) { return define(list->tail, env); }
+        if (list->head == Expr::QUOTE) { return quote(list->tail, env); }
+        if (list->head == Expr::LAMBDA) { return lambda(list->tail, env); }
+        if (list->head == Expr::IF) { return if_(list->tail, env); }
+        const auto& t = eval_all(list, env);
+        return apply(Expr::make_list(t->head, Expr::make_list(t->tail, Expr::List::Empty))); }
+      assert(false, "unknown expression");
+      return Expr::FALSE; }
 
     void init(const Expr::EnvironmentPtr& env) {
       env->insert(Expr::CONS, Expr::make_primitive(Expr::CONS, cons));
@@ -385,31 +410,7 @@ namespace ProtoLisp {
       env->insert(Expr::PROCEDUREP, Expr::make_primitive(Expr::PROCEDUREP, isp<Expr::ClosurePtr>));
       env->insert(Expr::SYMBOLP, Expr::make_primitive(Expr::SYMBOLP, isp<Expr::SymbolPtr>));
       env->insert(Expr::LISTP, Expr::make_primitive(Expr::LISTP, isp<Expr::ListPtr>));
-      env->insert(Expr::IF, Expr::make_primitive(Expr::IF, if_));
-      env->insert(Expr::QUOTE, Expr::make_primitive(Expr::QUOTE, quote));
-      env->insert(Expr::DEFINE, Expr::make_primitive(Expr::DEFINE, define));
-      env->insert(Expr::APPLY, Expr::make_primitive(Expr::APPLY, apply));
-      env->insert(Expr::LAMBDA, Expr::make_primitive(Expr::LAMBDA, lambda)); }
-
-    Expr::ObjectPtr eval(const Expr::ObjectPtr& exp, const Expr::EnvironmentPtr& env) {
-      if (trace) { std::cerr << static_cast<std::string>(*exp) << std::endl; }
-      if (isConstant(exp)) { return exp; }
-      const auto& sym = Expr::as<Expr::SymbolPtr>(exp);
-      if (sym) { return lookup(sym, env); }
-      const auto& list = Expr::as<Expr::ListPtr>(exp);
-      if (list) {
-        const auto& fn = eval(list->head, env);
-        const auto& args = list->tail;
-        const auto& builtin = Expr::as<Expr::PrimitivePtr>(fn);
-        if (builtin) { return builtin->exec(args, env); }
-        const auto& closure = Expr::as<Expr::ClosurePtr>(fn);
-        if (closure) {
-          return eval(closure->body, std::make_shared<Expr::Environment>(
-              closure->vars,
-              eval_all(args, env),
-              closure->env)); } }
-      assert(false, "unknown expression");
-      return Expr::FALSE; }
+      env->insert(Expr::APPLY, Expr::make_primitive(Expr::APPLY, apply)); }
   }
 
   namespace Repl {

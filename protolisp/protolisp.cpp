@@ -1,6 +1,9 @@
 /*
-g++ 4.5.3: g++ -Wall -Wextra -g -std=c++0x protolisp.cpp
-           g++ -Wall -Wextra -fwhole-program -Os -std=c++0x protolisp.cpp
+Tested with
+  g++ 4.5.3: g++ -Wall -Wextra -g -std=c++0x protolisp.cpp
+             g++ -Wall -Wextra -fwhole-program -Os -std=c++0x protolisp.cpp
+
+  Visual Studio 2012
 
 This is about as simple a lisp interpreter as I can imagine.
 
@@ -33,6 +36,7 @@ so cycles are not possible.)
 */
 
 #include <cctype> // isspace
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <map>
@@ -104,7 +108,7 @@ namespace ProtoLisp {
       return std::dynamic_pointer_cast<typename T::element_type>(o); }
 
     template <typename T> bool is(const ObjectPtr& o) {
-      return as<T>(o).get(); }
+      return 0 != as<T>(o).get(); }
   
     const auto& CONS = make_symbol("cons");
     const auto& HEAD = make_symbol("head");
@@ -165,7 +169,7 @@ namespace ProtoLisp {
         assert(len(vars) == len(vals), "wrong number of arguments");
         while (vars != List::Empty) {
           const auto& var = as<SymbolPtr>(vars->head);
-          assert(var.get(), "expected symbol for argument name");
+          assert(0 != var.get(), "expected symbol for argument name");
           insert(var, vals->head);
           vars = vars->tail; vals = vals->tail; } }
   
@@ -311,19 +315,19 @@ namespace ProtoLisp {
         assert(len(list) == 2, "wrong number of arguments");
         const auto& arg0 = list->head;
         const auto& arg1 = Expr::as<Expr::ListPtr>(list->tail->head);
-        assert(arg1.get(), "expected list for arg1");
+        assert(0 != arg1.get(), "expected list for arg1");
         return Expr::make_list(arg0, arg1); }
 
       Expr::ObjectPtr head(const Expr::ListPtr& list) {
         assert(len(list) == 1, "wrong number of arguments");
         const auto& arg0 = Expr::as<Expr::ListPtr>(list->head);
-        assert(arg0.get(), "expected list for arg0");
+        assert(0 != arg0.get(), "expected list for arg0");
         return arg0->head; }
 
       Expr::ObjectPtr tail(const Expr::ListPtr& list) {
         assert(len(list) == 1, "wrong number of arguments");
         const auto& arg0 = Expr::as<Expr::ListPtr>(list->head);
-        assert(arg0.get(), "expected list for arg0");
+        assert(0 != arg0.get(), "expected list for arg0");
         return arg0->tail; }
 
       Expr::ObjectPtr eqp(const Expr::ListPtr& list) {
@@ -347,7 +351,7 @@ namespace ProtoLisp {
       Expr::ObjectPtr define(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
         assert(len(list) == 2, "wrong number of arguments");
         const auto& arg0 = Expr::as<Expr::SymbolPtr>(list->head);
-        assert(arg0.get(), "expected symbol for arg0");
+        assert(0 != arg0.get(), "expected symbol for arg0");
         const auto& arg1 = eval(list->tail->head, env);
         env->insert(arg0, arg1);
         return arg1; } // Should return Void?
@@ -355,7 +359,7 @@ namespace ProtoLisp {
       Expr::ObjectPtr lambda(const Expr::ListPtr& list, const Expr::EnvironmentPtr& env) {
         assert(len(list) == 2, "wrong number of arguments");
         const auto& arg0 = Expr::as<Expr::ListPtr>(list->head);
-        assert(arg0.get(), "expected list for arg0");
+        assert(0 != arg0.get(), "expected list for arg0");
         const auto& arg1 = list->tail->head;
         return std::make_shared<Expr::Closure>(arg0, arg1, env); }
 
@@ -372,7 +376,7 @@ namespace ProtoLisp {
         assert(len(list) == 2, "wrong number of arguments");
         const auto& arg0 = list->head;
         const auto& arg1 = Expr::as<Expr::ListPtr>(list->tail->head);
-        assert(arg1.get(), "expected list for arg1");
+        assert(0 != arg1.get(), "expected list for arg1");
         const auto& builtin = Expr::as<Expr::PrimitivePtr>(arg0);
         if (builtin) { return builtin->exec(arg1); }
         const auto& closure = Expr::as<Expr::ClosurePtr>(arg0);
